@@ -43,13 +43,13 @@ function verifyJWT(req, res, next) {
 
 async function run() {
   try {
-    const categoryCollection = client.db('camerashop').collection('products-category');
-    const productsCollection = client.db('camerashop').collection('products');
-    const bookedItemCollection = client.db('camerashop').collection('booked-items');
-    const userCollection = client.db('camerashop').collection('users');
-    const advertiseCollection = client.db('camerashop').collection('advertiseitem');
-    const wishlistCollection = client.db('camerashop').collection('wishlist');
-    const paymentsCollection = client.db('camerashop').collection('payments');
+    const categoryCollection = client.db('pirates-hut').collection('products-category');
+    const productsCollection = client.db('pirates-hut').collection('products');
+    const bookedItemCollection = client.db('pirates-hut').collection('booked-items');
+    const userCollection = client.db('pirates-hut').collection('users');
+    const advertiseCollection = client.db('pirates-hut').collection('advertiseitem');
+    const wishlistCollection = client.db('pirates-hut').collection('wishlist');
+    const paymentsCollection = client.db('pirates-hut').collection('payments');
     //  post booked item
 
     app.post('/bookItem', async (req, res) => {
