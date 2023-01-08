@@ -43,13 +43,13 @@ function verifyJWT(req, res, next) {
 
 async function run() {
   try {
-    const categoryCollection = client.db('powerhant').collection('products-category');
-    const productsCollection = client.db('powerhant').collection('products');
-    const bookedItemCollection = client.db('powerhant').collection('booked-items');
-    const userCollection = client.db('powerhant').collection('users');
-    const advertiseCollection = client.db('powerhant').collection('advertiseitem');
-    const wishlistCollection = client.db('powerhant').collection('wishlist');
-    const paymentsCollection = client.db('powerhant').collection('payments');
+    const categoryCollection = client.db('camerashop').collection('products-category');
+    const productsCollection = client.db('camerashop').collection('products');
+    const bookedItemCollection = client.db('camerashop').collection('booked-items');
+    const userCollection = client.db('camerashop').collection('users');
+    const advertiseCollection = client.db('camerashop').collection('advertiseitem');
+    const wishlistCollection = client.db('camerashop').collection('wishlist');
+    const paymentsCollection = client.db('camerashop').collection('payments');
     //  post booked item
 
     app.post('/bookItem', async (req, res) => {
