@@ -1,369 +1,572 @@
-const express = require("express");
-const cors = require("cors");
-const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-const jwt = require("jsonwebtoken");
-require("dotenv").config();
-const app = express();
+const express = require('express');
+const cors = require('cors');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const jwt = require('jsonwebtoken');
+require('dotenv').config();
+const stripe = require('stripe')(process.env.STRIPE_SECRET)
+
 const port = process.env.PORT || 5000;
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const app = express();
 
-
-
-
+// middleware 
 app.use(cors());
 app.use(express.json());
 
-app.get("/", (req, res) => {
-	res.send("furniture server is running now ");
-});
-app.listen(port, () => {
-	console.log("port is running", port);
-});
-const uri = `mongodb+srv://${process.env.USER}:${process.env.PASSWORD}@cluster0.jf2skzr.mongodb.net/?retryWrites=true&w=majority`;
-console.log(uri)
-const client = new MongoClient(uri, {
-	useNewUrlParser: true,
-	useUnifiedTopology: true,
-	serverApi: ServerApiVersion.v1,
-});
+
+const uri = `mongodb+srv://${process.env.USER}:${process.env.PASSWORD}@cluster0.ikwqeh8.mongodb.net/?retryWrites=true&w=majority`;
+const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true, serverApi: ServerApiVersion.v1 });
+
+
+// verify jwt token
 
 function verifyJWT(req, res, next) {
-	const authHeader = req.headers.authorization
-	if (!authHeader) {
-		return res.status(401).send('unAuthorized')
-	}
-	const token = authHeader.split(' ')[1]
-	jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded) {
-		if (err) {
-			return res.status(403).send({ message: "forbidden access" })
-		}
-		req.decoded = decoded
-		next()
-	})
+  const userAuth = req.headers?.authorization;
+  if (!userAuth) {
+    return res.status(401).send('Unauthorized Access')
+  }
+  const token = userAuth.split(' ')[1];
+  jwt.verify(token, process.env.ACCESS_TOKEN, (
+    err, decoded) => {
+    if (err) {
+      return res.status(403).send({ message: 'forbidden Access' })
+    }
+    req.decoded = decoded;
+    next();
+  })
+
 }
+
+
+
+
+
 
 async function run() {
-	const reshop1000s = client.db('reshop1000').collection('function')
-	const gatagroisCollections = client.db('reshop1000').collection('gatagrois')
-	const userCollections = client.db('reshop1000').collection('user')
-	const orserCollections = client.db('reshop1000').collection('orser')
-	const reportCollections = client.db('reshop1000').collection('report')
-	const paymentCollection = client.db('reshop1000').collection('payment')
+  try {
+    const categoryCollection = client.db('powerhant').collection('products-category');
+    const productsCollection = client.db('powerhant').collection('products');
+    const bookedItemCollection = client.db('powerhant').collection('booked-items');
+    const userCollection = client.db('powerhant').collection('users');
+    const advertiseCollection = client.db('powerhant').collection('advertiseitem');
+    const wishlistCollection = client.db('powerhant').collection('wishlist');
+    const paymentsCollection = client.db('powerhant').collection('payments');
+    //  post booked item
 
+    app.post('/bookItem', async (req, res) => {
+      const item = req.body;
+      const result = await bookedItemCollection.insertOne(item);
+      res.send(result)
 
-	// verify admin 
-	const verifyAdmin = async (req, res, next) => {
-		const decodedEmail = req.decoded.email
-		const query = { email: decodedEmail }
-		const user = await userCollections.findOne(query)
+    })
 
-		if (user?.role !== 'Admin') {
-			return res.status(403).send({ message: 'forbidden access' })
-		}
-		next()
-	}
-	// verify seller 
-	const verifySeller = async (req, res, next) => {
-		const decodedEmail = req.decoded.email
-		const query = { email: decodedEmail }
-		const user = await userCollections.findOne(query)
+    // add new products
 
-		if (user?.role !== 'seller') {
-			return res.status(403).send({ message: 'forbidden access' })
-		}
-		next()
-	}
-	// verify buyer 
-	const verifyBuyer = async (req, res, next) => {
-		const decodedEmail = req.decoded.email
-		const query = { email: decodedEmail }
-		const user = await userCollections.findOne(query)
+    app.post('/addproducts', async (req, res) => {
+      const product = req.body;
+      const result = await productsCollection.insertOne(product);
+      res.send(result)
 
-		if (user?.role !== 'buyer') {
-			return res.status(403).send({ message: 'forbidden access' })
-		}
-		next()
-	}
-	try {
-
-		app.post("/create-payment-intent", async (req, res) => {
-			const order = req.body;
-			
-			const price = order.price;
-			const amount = price * 100;
-			
-			const paymentIntent = await stripe.paymentIntents.create({
-				currency: "usd",
-				amount: amount,
-				payment_method_types: ["card"],
-			});
-			res.send({
-				clientSecret: paymentIntent.client_secret,
-			});
-		});
-
-
-		app.post("/payment", async (req, res) => {
-			const payment = req.body;
-			const result = await paymentCollection.insertOne(payment);
-			const id = payment.order;
-			const filter = { _id: ObjectId(id) };
-			const updatedDoc = {
-				$set: {
-					paid: true,
-					transactionId: payment.transactionId,
-				},
-			};
-			const updatedResult = await orserCollections.updateOne(
-				filter,
-				updatedDoc
-			);
-			res.send(result);
-		});
-
-
-
-		
+    })
 
 
 
 
-		app.post('/orser', async (req, res) => {
-			const checkSellerEmail = req.query.email
-			const order = req.body
-			const query = {
-				productId: order.productId,
-				productImage: order.productImage
-			}
-			const checkSeller = { sellerEmail: order?.buyerEmail }
-			const seller = await reshop1000s.findOne(checkSeller)
-			if (checkSellerEmail === seller?.sellerEmail) {
-				return res.send({ message: "You can't order your product" })
-			}
-			const alreadyOrder = await orserCollections.findOne(query)
-			if (alreadyOrder) {
-				return res.send({ message: 'Sorry this product is out of stock' })
-			}
-			const result = await orserCollections.insertOne(order)
-			res.send(result)
-		})
+
+    // get my products
+
+    app.get('/myproducts', async (req, res) => {
+      const email = req.query?.email;
+      const query = {
+        email: email
+      }
+
+      const result = productsCollection.find(query);
+      const myproducts = await result.toArray();
+      res.send(myproducts)
+    })
 
 
 
 
-		app.post('/function', async (req, res) => {
-			const product = req.body
-			const result = await reshop1000s.insertOne(product)
-			res.send(result)
-		})
-		app.post('/user', async (req, res) => {
-			const user = req.body
-			const query = { email: user.email }
-			const alreadyUser = await userCollections.findOne(query)
-			if (alreadyUser) {
-				return res.send({ acknowledged: true })
-			}
-			const result = await userCollections.insertOne(user)
-			res.send(result)
-
-		})
-		app.post('/report', async (req, res) => {
-			const report = req.body
-			const result = await reportCollections.insertOne(report)
-			res.send(result)
-		})
-		
-		app.get('/jwt', async (req, res) => {
-			const email = req.query.email;
-			const query = { email: email };
-			const user = await userCollections.findOne(query);
-			if (user) {
-				const token = jwt.sign({ email }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '5d' })
-				return res.send({ accessToken: token });
-			}
-			res.status(403).send({ accessToken: '' })
-		});
-
-		app.get('/user/admin/:email', async (req, res) => {
-			const email = req.params.email;
-			const query = { email }
-			const user = await userCollections.findOne(query);
-			res.send({ isAdmin: user?.role === 'Admin' });
-		})
-		app.get('/user', verifyJWT, verifyAdmin, async (req, res) => {
-			const email = req.query.email;
-			const decodedEmail = req.decoded.email;
-			if (email !== decodedEmail) {
-				return res.status(403).send({ message: 'forbidden access' });
-			}
-			const result = await userCollections.find({}).toArray()
-			res.send(result)
-		})
-		app.get('/user/sellers', verifyJWT, verifyAdmin, async (req, res) => {
-			const email = req.query.email;
-			const decodedEmail = req.decoded.email;
-			if (email !== decodedEmail) {
-				return res.status(403).send({ message: 'forbidden access' });
-			}
-			const sellers = await userCollections.find({}).toArray()
-			const seller = sellers.filter(seller => seller.role === 'seller')
-			res.send(seller)
-		})
-		app.get('/user/buyers', verifyJWT, verifyAdmin, async (req, res) => {
-			const email = req.query.email;
-			const decodedEmail = req.decoded.email;
-			if (email !== decodedEmail) {
-				return res.status(403).send({ message: 'forbidden access' });
-			}
-			const sellers = await userCollections.find({}).toArray()
-			const seller = sellers.filter(seller => seller.role === 'buyer')
-			res.send(seller)
-		})
-
-		app.get('/user/:email', verifyJWT, async (req, res) => {
-			const email = req.params.email
-			const query = { email: email }
-			const result = await userCollections.findOne(query)
-			res.send(result)
-		})
-		app.get('/user/seller/:email', async (req, res) => {
-			const email = req.params.email;
-			const query = { email }
-			const user = await userCollections.findOne(query);
-			res.send({ isSeller: user?.role === 'seller' });
-		})
-		app.get('/user/buyer/:email', async (req, res) => {
-			const email = req.params.email;
-			const query = { email }
-			const user = await userCollections.findOne(query);
-			res.send({ isBuyer: user?.role === 'buyer' });
-		})
-
-		app.get('/gatagrois', async (req, res) => {
-			const query = {}
-			const result = await gatagroisCollections.find(query).toArray()
-			res.send(result)
-		})
-		app.get("/avtar", async (req, res) => {
-			const query = {}
-			const result = await reshop1000s.find(query).toArray()
-			res.send(result)
-		})
-		app.get('/avtar/:id', async (req, res) => {
-			const { id } = req.params
-			const query = { _id: ObjectId(id) }
-			const result = await reshop1000s.findOne(query)
-			res.send(result)
-		})
-		app.get('/avtar/seller/:email', verifyJWT, verifySeller, async (req, res) => {
-			const email = req.params.email
-			const query = { sellerEmail: email }
-			const result = await reshop1000s.find(query).toArray()
-			res.send(result)
-		})
-		app.get('/advertisefunction', async (req, res) => {
-			const avtar = await reshop1000s.find({}).toArray()
-			const filter = avtar.filter(furniture => furniture.Status === 'Approved')
-			res.send(filter)
-		})
-		app.get('/gatagroisProducts/:id', async (req, res) => {
-			const { id } = req.params
-			const query = { categoryName: id }
-			const result = await reshop1000s.find(query).toArray()
-			res.send(result)
-		})
-		app.get('/orser/:email', verifyJWT, async (req, res) => {
-			const email = req.params.email
-			const query = { buyerEmail: email }
-			const result = await orserCollections.find(query).toArray()
-			res.send(result)
-		})
-		app.get('/singleOrder/:id', async (req, res) => {
-			const id = req.params.id
-			const query = { _id: ObjectId(id) }
-			const result = await orserCollections.findOne(query)
-			res.send(result)
-		})
-		app.get('/report', verifyJWT, verifyAdmin, async (req, res) => {
-			const query = {}
-			const result = await reportCollections.find(query).toArray()
-			res.send(result)
-		})
-
-		
-		app.put('/user/:email', verifyJWT, verifyAdmin, async (req, res) => {
-			const email = req.params.email
-			if (email) {
-				const sellerVerified = { email: email }
-				const query = { sellerEmail: email }
-				const options = { upsert: true }
-				const updateDoc = {
-					$set: {
-						verified: 'true',
-					}
-				}
-				const seller = await userCollections.updateOne(sellerVerified, updateDoc, options)
-				const result = await reshop1000s.updateMany(query, updateDoc, options)
-				res.send(result)
-			}
-		})
-		app.put('/function/:id', async (req, res) => {
-			const { id } = req.params
-			const Status = req.body
-			const query = { _id: ObjectId(id) }
-			const options = { upsert: true }
-			const updateDoc = {
-				$set: {
-					Status: Status?.Status,
-				}
-			}
-			const result = await reshop1000s.updateOne(query, updateDoc, options)
-			res.send(result)
-		})
 
 
-		app.delete('/user/:id', verifyJWT, verifyAdmin, async (req, res) => {
-			const { id } = req.params
-			const email = req.query.email
-			const query = { _id: ObjectId(id) }
-			const user = await userCollections.findOne(query)
-			if (user.email === email || user.role === 'Admin' || user.email === 'jibon@gmail.com') {
-				return res.send({ message: "You Can't delete admin but Owner Can delete everything" })
-			}
-			const result = await userCollections.deleteOne(query)
-			res.send(result)
-		})
-		app.delete('/function/:id', verifyJWT, verifyAdmin, async (req, res) => {
-			const id = req.params.id
-			const query = { _id: ObjectId(id) }
-			const result = await reshop1000s.deleteOne(query)
-			res.send(result)
-		})
-		app.delete('/function/seller/:id', verifyJWT, verifySeller, async (req, res) => {
-			const { id } = req.params
-			const query = { _id: ObjectId(id) }
-			const result = await reshop1000s.deleteOne(query)
-			res.send(result)
-		})
-		app.delete('/orser/:id', verifyJWT, async (req, res) => {
-			const { id } = req.params
-			const query = { _id: ObjectId(id) }
-			const result = await orserCollections.deleteOne(query)
-			res.send(result)
-		})
-		app.delete('/report/:id', verifyJWT, verifyAdmin, async (req, res) => {
-			const { id } = req.params
-			const query = { _id: ObjectId(id) }
-			const result = await reportCollections.deleteOne(query)
-			res.send(result)
-		})
-		
-	} finally {
-		err => {
-			console.log(err);
-		}
-	}
+    //   add to advertise
+
+    app.put('/addtoadvertise', async (req, res) => {
+      const advertiseItem = req.body;
+      const id = req.query.id;
+      const filter = {
+        _id: ObjectId(id)
+      }
+      const options = { upsert: true };
+      const updatedDoc = {
+        $set: {
+          category: advertiseItem.category,
+          location: advertiseItem.location,
+          phone: advertiseItem.phone,
+          price: advertiseItem.price,
+          title: advertiseItem.title,
+          description: advertiseItem.description,
+          email: advertiseItem.email,
+          purchaseyear: advertiseItem.purchaseyear,
+          originalprice: advertiseItem.originalprice,
+          condition: advertiseItem.condition,
+          postdate: advertiseItem.postdate,
+          price: advertiseItem.price,
+          availibility: advertiseItem.availibility,
+          advertise: 'advertised',
+          image: advertiseItem.image
+        }
+      }
+      const result = await advertiseCollection.updateOne(filter, updatedDoc, options);
+      res.send(result);
+    })
+
+
+    // get all adertised items 
+    app.get('/advertisedItem', async (req, res) => {
+      const query = {
+        advertise: 'advertised'
+      }
+      const items = await advertiseCollection.find(query).toArray();
+      res.send(items)
+    })
+
+
+
+
+    // google user login
+
+    app.put('/googlelogin', async (req, res) => {
+      let user = req.body;
+      const filter = {
+        email: user?.email
+      }
+      const options = { upsert: true };
+      const updatedDoc = {
+        $set: {
+          name: user.name,
+          email: user?.email,
+          photoURL: user?.photoURL,
+          accountType: 'Buyer'
+        }
+      }
+      const result = await userCollection.updateOne(filter, updatedDoc, options)
+      res.send(result)
+
+
+    })
+
+
+
+
+
+
+
+
+
+
+
+    // create user
+    app.post('/createuser', async (req, res) => {
+      const user = req.body;
+      const result = await userCollection.insertOne(user);
+      res.send(result);
+    })
+
+
+
+    // get jwt token 
+    app.get('/getjwt', async (req, res) => {
+      const email = req.query?.email;
+      const query = {
+        email: email
+      };
+      const user = await userCollection.findOne(query);
+      if (user) {
+        const token = jwt.sign({ email }, process.env.ACCESS_TOKEN, { expiresIn: '1d' })
+        return res.send({ accessToken: token })
+      }
+      res.status(403).send({ accessToken: '' });
+
+    })
+
+
+
+
+
+
+
+
+
+
+    // get my orders
+    app.get('/myorders', verifyJWT, async (req, res) => {
+      const email = req.query?.email;
+      const decodedEmail = req.decoded?.email;
+      if (email !== decodedEmail) {
+        return res.status(403).send({ message: 'forbidden Access' })
+      }
+      const query = {
+        email: email
+      }
+      const result = await bookedItemCollection.find(query).toArray();
+
+
+      res.send(result);
+    })
+
+
+    // get  users  
+    app.get('/users', async (req, res) => {
+      const email = req.query?.email;
+      if (email) {
+        const query = {
+          email: email
+        }
+        const user = await userCollection.find(query).toArray();
+        return res.send(user)
+      }
+      res.send({ message: 'No Email Found' })
+    })
+
+    // get all users
+
+    app.get('/allusers', verifyJWT, async (req, res) => {
+      const decodedEmail = req.decoded.email;
+      const adminemail = { email: decodedEmail };
+      const user = await userCollection.findOne(adminemail);
+      if (user?.accountType !== 'Admin') {
+        return res.status(403).send({ message: 'forbidden access' });
+      }
+      const query = {};
+      const allusers = await userCollection.find(query).toArray();
+      res.send(allusers);
+    })
+
+    // use admin hook
+    app.get('/users/admin/:email', async (req, res) => {
+      const email = req.params?.email;
+      const query = { email: email }
+      const user = await userCollection.findOne(query);
+      res.send({ isAdmin: user?.accountType === 'Admin' });
+    })
+
+    // use seller verify
+    app.get('/users/seller/:email', async (req, res) => {
+      const email = req.params.email;
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      res.send({ isSeller: user?.accountType === 'Seller' });
+    })
+
+
+    //  get all sellers 
+    app.get('/allseller', verifyJWT, async (req, res) => {
+      const decodedEmail = req.decoded.email;
+      const adminemail = { email: decodedEmail };
+      const user = await userCollection.findOne(adminemail);
+      if (user?.accountType !== 'Admin') {
+        return res.status(403).send({ message: 'forbidden access' });
+      }
+
+      const query = {
+        accountType: 'Seller'
+      };
+      const sellers = await userCollection.find(query).toArray();
+      res.send(sellers)
+    })
+
+    // promote user 
+    app.patch('/setaccounttype/:id', async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: ObjectId(id) }
+      const updatedDoc = {
+        $set: {
+          accountType: 'Admin'
+        }
+      }
+      const result = await userCollection.updateOne(filter, updatedDoc);
+      res.send(result)
+    })
+
+
+
+
+    //  verify seller
+    app.put('/verifyuser/:id', async (req, res) => {
+      const id = req.params.id;
+      const filter = {
+        _id: ObjectId(id)
+      }
+      const options = { upsert: true };
+      const updatedDoc = {
+        $set: {
+          verification: 'Verified'
+        }
+      }
+      // const user = userCollection.find(filter);
+      const result = await userCollection.updateOne(filter, updatedDoc, options)
+      res.send(result)
+    })
+
+    // verify sellerproducts
+    app.put('/verifyuserproducts/:email', async (req, res) => {
+      const email = req.params.email;
+      const filter = {
+        email: email
+      }
+      const options = { upsert: true };
+      const updatedDoc = {
+        $set: {
+          verification: 'Verified'
+        }
+      }
+      const result = await productsCollection.updateOne(filter, updatedDoc, options);
+      res.send(result)
+    })
+    //add to wishlist
+    app.put('/addtowishlist', async (req, res) => {
+      const product = req.body;
+      console.log(req.body);
+      const id = product._id;
+      const filter = {
+        _id: ObjectId(id)
+      }
+      const options = { upsert: true }
+      const updatedDoc = {
+        $set: {
+          category: product.category,
+          location: product.location,
+          phone: product.phone,
+          price: product.price,
+          title: product.title,
+          sellername: product.sellername,
+          description: product.description,
+          purchaseyear: product.purchaseyear,
+          originalprice: product.originalprice,
+          productId: product._id,
+          email: product.buyeremail
+
+        }
+      }
+
+      const result = await wishlistCollection.updateOne(filter, updatedDoc, options);
+      res.send(result)
+    })
+
+
+
+    // get all wishlis
+
+    app.get('/wishlistitems/:email', async (req, res) => {
+      const email = req.params.email;
+      console.log(email);
+      const query = {
+        email: email
+      }
+      const result = await wishlistCollection.find(query).toArray();
+      res.send(result)
+    })
+
+    // delete wishlist
+    app.delete('/deletewishlist/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = {
+        _id: ObjectId(id)
+      }
+      console.log(query);
+      const result = await wishlistCollection.deleteOne(query);
+      res.send(result)
+    })
+
+
+
+
+    // get all buyers
+    app.get('/allbuyers', verifyJWT, async (req, res) => {
+
+      const decodedEmail = req.decoded.email;
+      const adminemail = { email: decodedEmail };
+      const user = await userCollection.findOne(adminemail);
+      if (user?.accountType !== 'Admin') {
+        return res.status(403).send({ message: 'forbidden access' });
+      }
+
+      const query = {
+        accountType: 'Buyer'
+      };
+      const buyers = await userCollection.find(query).toArray();
+      res.send(buyers)
+    })
+
+
+    //  delete seller
+    app.delete('/deleteseller/:id', async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: ObjectId(id) }
+      const result = await userCollection.deleteOne(filter);
+      res.send(result);
+    })
+
+    // delete  buyer
+    app.delete('/deletebuyer/:id', async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: ObjectId(id) }
+      const result = await userCollection.deleteOne(filter);
+      res.send(result);
+    })
+
+    // delete users 
+    app.delete('/deleteuser/:id', async (req, res) => {
+      const id = req.params.id;
+      console.log(id);
+      const filter = { _id: ObjectId(id) }
+      const result = await userCollection.deleteOne(filter);
+      res.send(result)
+    })
+
+
+    // delete my orders 
+    app.delete('/deleteorder/:id', async (req, res) => {
+      const id = req.params.id;
+      console.log(id);
+      const filter = { _id: ObjectId(id) }
+      const result = await bookedItemCollection.deleteOne(filter);
+      res.send(result)
+    })
+
+
+    // delete product
+
+    app.delete('/deletemyproduct/:id', async (req, res) => {
+      const id = req.params.id;
+
+      const filter = { _id: ObjectId(id) };
+      const result = await productsCollection.deleteOne(filter);
+      res.send(result)
+    })
+
+    // delete adveriseprduct
+
+    app.delete('/deleteadvertiseproduct/:email', async (req, res) => {
+      const email = req.params.email;
+      const filter = { email: email };
+      const result = await advertiseCollection.deleteOne(filter);
+      res.send(result)
+    })
+
+
+    //  get categories 
+    app.get('/categories', async (req, res) => {
+      const query = {}
+      const category = await categoryCollection.find(query).toArray();
+      res.send(category);
+
+    })
+
+    //  get selected category item
+    app.get('/category/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: ObjectId(id) }
+      const categoryItems = await categoryCollection.findOne(query);
+      res.send(categoryItems)
+    })
+
+
+    //  get products by category
+
+    app.get('/products/:category', async (req, res) => {
+      const category = req.params.category;
+      const query = {
+        category: category
+      }
+      const products = await productsCollection.find(query).toArray();
+      const matchedData = products.filter(payment => {
+        return payment.paymentStatus !== true;
+      })
+      res.send(matchedData)
+    })
+
+
+
+    // getcheckout item
+    app.get('/dashboard/checkout/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = {
+        productId: id
+      }
+      const result = await bookedItemCollection.find(query).toArray();
+
+      res.send(result)
+    })
+
+
+    // checkout
+
+    app.post('/create-payment-intent', async (req, res) => {
+      const booking = req.body;
+      const price = booking.price;
+      const amount = price * 100;
+
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        currency: 'usd',
+        amount: amount,
+        'payment_method_types': [
+          'card'
+        ]
+      })
+      res.send({
+        clientSecret: paymentIntent.client_secret
+      })
+
+    })
+
+
+    // payments
+    app.put('/payments', async (req, res) => {
+      const payment = req.body;
+
+      const id = payment.productId;
+      const filter = { _id: ObjectId(id) }
+      const options = { upsert: true }
+      const bookedfilter = { productId: id }
+      const updatedDoc = {
+        $set: {
+          paymentStatus: true,
+          transactionId: payment.transactionId
+        }
+      }
+      const result = await paymentsCollection.updateOne(filter, updatedDoc, options);
+
+      const updatedResult = await bookedItemCollection.updateOne(bookedfilter, updatedDoc)
+      const updateProduct = {
+        $set: {
+          paymentStatus: true
+        }
+      }
+      const updatedProducts = await productsCollection.updateOne(filter, updateProduct, options)
+
+      res.send(result);
+    })
+
+
+
+
+
+  } finally { }
+
 }
-run().catch(err => {
-	console.log(err);
-});
+
+
+run()
+
+
+
+
+app.get('/', async (req, res) => {
+  res.send('Pirates Hut Server Is running')
+})
+
+app.listen(port, () => 'Pirates Hut server is running')
